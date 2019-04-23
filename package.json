@@ -1,0 +1,7 @@
+{
+  "name": "solidity-LPT-escrow",
+  "version": "1.0.0",
+  "dependencies": {
+    "openzeppelin-solidity": "^2.2.0"
+  }
+}
