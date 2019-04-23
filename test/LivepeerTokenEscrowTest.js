@@ -1,4 +1,4 @@
-const LivepeerTokenEscrow = artifacts.require("LivepeerTokenEscrow")
+const LivepeerTokenEscrow = artifacts.require('LivepeerTokenEscrow')
 
 contract('LivepeerTokenEscrow', accounts => {
 
@@ -8,7 +8,5 @@ contract('LivepeerTokenEscrow', accounts => {
         livepeerTokenEscrow = await LivepeerTokenEscrow.new()
     })
 
-    describe('depositFunds()', async () => {
 
-    })
 })
