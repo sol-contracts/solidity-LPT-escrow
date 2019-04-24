@@ -5,7 +5,7 @@ import "./TimeDelayedOrderBook.sol";
 contract LivepeerTokenEscrow is TimeDelayedOrderBook {
 
     function timeToFillOrder() public returns (uint256) {
-        return 3000000000000000000; // 3 tokens, hoist
+        return 3000000000000000000;
     }
 
 }
