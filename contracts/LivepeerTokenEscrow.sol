@@ -4,8 +4,8 @@ import "./TimeDelayedOrderBook.sol";
 
 contract LivepeerTokenEscrow is TimeDelayedOrderBook {
 
-    function timeToFillOrder() public returns (uint256) {
-        return 3000000000000000000;
+    function timeToFillOrder() public view returns (uint256) {
+        return 10 days;
     }
 
 }

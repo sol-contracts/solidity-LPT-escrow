@@ -2,12 +2,13 @@ pragma solidity ^0.5.7;
 
 import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
 
-// TODO: Restrict time to fill committed purchase order to Livepeer unbonding period length.
 // TODO: Safe token transfers.
+// TODO: TimeLockedOrderBook ?
 contract TimeDelayedOrderBook {
 
     address private constant ETH_TOKEN_IDENTIFIER = address(0);
-    uint256 private constant DEFAULT_TIME_TO_FILL_ORDER = 0;
+    address private constant ZERO_ADDRESS = address(0);
+    uint256 private constant EMPTY_TIME_TO_FILL_ORDER = 0;
 
     string internal constant ERROR_INCORRECT_PAYMENT_VALUE = "ORDER_BOOK_INCORRECT_PAYMENT_VALUE";
     string internal constant ERROR_NOT_ORDER_OWNER = "ORDER_BOOK_NOT_PURCHASE_ORDER_OWNER";
@@ -28,10 +29,8 @@ contract TimeDelayedOrderBook {
         address collateralToken;
         uint256 collateralValue;
 
-        // TODO: Can remove this.
-        bool committedTo;
         address committedFillerAddress;
-        uint256 timeToFillOrder;
+        uint256 fillOrderByTime;
     }
 
     uint256 private newPurchaseOrderId;
@@ -49,8 +48,8 @@ contract TimeDelayedOrderBook {
         address _collateralToken,
         uint256 _collateralValue
     )
-    public
-    payable
+        public
+        payable
     {
         if (_paymentToken == ETH_TOKEN_IDENTIFIER) {
             require(msg.value == _paymentValue, ERROR_INCORRECT_PAYMENT_VALUE);
@@ -67,9 +66,8 @@ contract TimeDelayedOrderBook {
             _paymentValue,
             _collateralToken,
             _collateralValue,
-            false,
-            address(0),
-            DEFAULT_TIME_TO_FILL_ORDER
+            ZERO_ADDRESS,
+            EMPTY_TIME_TO_FILL_ORDER
         );
 
         purchaseOrders[newPurchaseOrderId] = purchaseOrder;
@@ -84,12 +82,20 @@ contract TimeDelayedOrderBook {
         PurchaseOrder storage purchaseOrder = purchaseOrders[_purchaseOrderId];
 
         require(purchaseOrder.purchaseOrderCreator == msg.sender, ERROR_NOT_ORDER_OWNER);
-        require(purchaseOrder.committedTo == false, ERROR_ORDER_COMMITTED_TO);
+        require(purchaseOrder.committedFillerAddress == ZERO_ADDRESS || now > purchaseOrder.fillOrderByTime, ERROR_ORDER_COMMITTED_TO);
 
         if (purchaseOrder.paymentToken == ETH_TOKEN_IDENTIFIER) {
             msg.sender.transfer(purchaseOrder.paymentValue);
         } else {
             IERC20(purchaseOrder.paymentToken).transfer(msg.sender, purchaseOrder.paymentValue);
+        }
+
+        if (purchaseOrder.committedFillerAddress != ZERO_ADDRESS && now > purchaseOrder.fillOrderByTime) {
+            if (purchaseOrder.collateralToken == ETH_TOKEN_IDENTIFIER) {
+                msg.sender.transfer(purchaseOrder.collateralValue);
+            } else {
+                IERC20(purchaseOrder.collateralToken).transfer(msg.sender, purchaseOrder.collateralValue);
+            }
         }
 
         delete purchaseOrders[_purchaseOrderId];
@@ -103,7 +109,7 @@ contract TimeDelayedOrderBook {
     function commitToPurchaseOrder(uint256 _purchaseOrderId) public payable {
         PurchaseOrder storage purchaseOrder = purchaseOrders[_purchaseOrderId];
 
-        require(purchaseOrder.committedTo == false, ERROR_ORDER_COMMITTED_TO);
+        require(purchaseOrder.committedFillerAddress == ZERO_ADDRESS, ERROR_ORDER_COMMITTED_TO);
         if (purchaseOrder.collateralToken == ETH_TOKEN_IDENTIFIER) {
             require(purchaseOrder.collateralValue == msg.value, ERROR_INCORRECT_COLLATERAL);
         } else {
@@ -111,8 +117,8 @@ contract TimeDelayedOrderBook {
             IERC20(purchaseOrder.collateralToken).transferFrom(msg.sender, address(this), purchaseOrder.collateralValue);
         }
 
-        purchaseOrder.committedTo = true;
         purchaseOrder.committedFillerAddress = msg.sender;
+        purchaseOrder.fillOrderByTime = now + timeToFillOrder();
     }
 
     function fillPurchaseOrder(uint256 _purchaseOrderId) public {
@@ -138,5 +144,5 @@ contract TimeDelayedOrderBook {
         // TODO: DELETE FROM purchaseOrderIds
     }
 
-    function timeToFillOrder() public returns (uint256);
+    function timeToFillOrder() public view returns (uint256);
 }
