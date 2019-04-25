@@ -2,7 +2,7 @@ const TimeDelayedOrderBookMock = artifacts.require('TimeDelayedOrderBookMock')
 const Erc20Token = artifacts.require('TestErc20')
 const BN = require('bn.js')
 const {getLog, assertEqualBN, assertRevert} = require('./helpers')
-const {increaseTo} = require('openzeppelin-test-helpers/src/time')
+const {increaseTo, latest} = require('openzeppelin-test-helpers/src/time')
 
 const ETH_TOKEN_IDENTIFIER = '0x0000000000000000000000000000000000000000'
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
@@ -19,6 +19,9 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
 
     let orderId
     let timeToFillOrder
+
+    const subGasUsed = (ethValueBn, receipt) =>
+        ethValueBn.sub(new BN(receipt.receipt.gasUsed).mul(new BN(gasPrice)))
 
     beforeEach(async () => {
         timeDelayedOrderBook = await TimeDelayedOrderBookMock.new()
@@ -59,8 +62,8 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
             it('deletes the purchase order', async () => {
                 await timeDelayedOrderBook.cancelPurchaseOrder(orderId)
 
-                const purchaseOrder = await timeDelayedOrderBook.purchaseOrders(orderId)
-                assert.strictEqual(purchaseOrder.purchaseOrderCreator, ZERO_ADDRESS)
+                const { purchaseOrderCreator } = await timeDelayedOrderBook.purchaseOrders(orderId)
+                assert.strictEqual(purchaseOrderCreator, ZERO_ADDRESS)
             })
 
             it('returns ETH', async () => {
@@ -69,7 +72,7 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
 
                 const cancelReceipt = await timeDelayedOrderBook.cancelPurchaseOrder(orderId)
 
-                expectedOrderCreatorBalance = expectedOrderCreatorBalance.sub(new BN(cancelReceipt.receipt.gasUsed).mul(new BN(gasPrice)))
+                expectedOrderCreatorBalance = subGasUsed(expectedOrderCreatorBalance, cancelReceipt)
                 const actualOrderCreatorBalance = await web3.eth.getBalance(purchaseOrderCreator)
                 assert.isTrue((new BN(actualOrderCreatorBalance)).eq(expectedOrderCreatorBalance))
             })
@@ -78,8 +81,27 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
                 await assertRevert(timeDelayedOrderBook.cancelPurchaseOrder(orderId, { from: notPurchaseOrderCreator }), 'ORDER_BOOK_NOT_PURCHASE_ORDER_OWNER')
             })
 
-            it('sends collateral to the creator after being committed too and fill order by time is reached', async () => {
+            it("reverts when committed too but fill order by time isn't reached", async () => {
+                await timeDelayedOrderBook.commitToPurchaseOrder(orderId, { value: collateralValue, from: purchaseOrderFiller })
+                const { fillOrderByTime } = await timeDelayedOrderBook.purchaseOrders(orderId)
+                await increaseTo(fillOrderByTime.sub(new BN(10)))
 
+                assertRevert(timeDelayedOrderBook.cancelPurchaseOrder(orderId), 'ORDER_BOOK_PURCHASE_COMMITTED_TO')
+            })
+
+            it('sends collateral to the creator after being committed too and fill order by time is reached', async () => {
+                const originalOrderCreatorEth = await web3.eth.getBalance(purchaseOrderCreator)
+                let expectedOrderCreatorEth = new BN(originalOrderCreatorEth).add(new BN(collateralValue)).add(new BN(paymentValue))
+                await timeDelayedOrderBook.commitToPurchaseOrder(orderId, { value: collateralValue, from: purchaseOrderFiller })
+                const { fillOrderByTime } = await timeDelayedOrderBook.purchaseOrders(orderId)
+                await increaseTo(fillOrderByTime.add(new BN(10)))
+
+                const cancelReceipt = await timeDelayedOrderBook.cancelPurchaseOrder(orderId)
+
+                expectedOrderCreatorEth = subGasUsed(expectedOrderCreatorEth, cancelReceipt)
+                const actualOrderCreatorEth = await web3.eth.getBalance(purchaseOrderCreator)
+
+                assert.isTrue(new BN(actualOrderCreatorEth).eq(expectedOrderCreatorEth))
             })
         })
 
@@ -101,17 +123,17 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
                 await timeDelayedOrderBook.commitToPurchaseOrder(orderId, { value: collateralValue })
 
                 const actualOrderBookEth = await web3.eth.getBalance(timeDelayedOrderBook.address)
-                assert.strictEqual(actualOrderBookEth, expectedOrderBookEth.toString())
+                assert.strictEqual(parseInt(actualOrderBookEth), expectedOrderBookEth)
             })
 
             it('updates purchase order details', async () => {
                 await timeDelayedOrderBook.commitToPurchaseOrder(orderId, { value: collateralValue })
 
-                const purchaseOrder = await timeDelayedOrderBook.purchaseOrders(orderId)
-                assert.strictEqual(purchaseOrder.committedFillerAddress, purchaseOrderCreator)
+                const { committedFillerAddress, fillOrderByTime } = await timeDelayedOrderBook.purchaseOrders(orderId)
+                assert.strictEqual(committedFillerAddress, purchaseOrderCreator)
 
-                const expectedTimeToFillOrder = timeToFillOrder.add(new BN(Date.now()/1000)).toNumber()
-                assert.closeTo(purchaseOrder.fillOrderByTime.toNumber(), expectedTimeToFillOrder, 10)
+                const expectedTimeToFillOrder = timeToFillOrder.add(await latest()).toNumber()
+                assert.closeTo(fillOrderByTime.toNumber(), expectedTimeToFillOrder, 10)
             })
         })
 
@@ -139,11 +161,11 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
 
             it('transfers payment and collateral back to the order fulfiller in ETH', async () => {
                 const originalOrderFillerEth = await web3.eth.getBalance(purchaseOrderFiller)
-                let expectedOrderFillerEth = new BN(originalOrderFillerEth).add(new BN(collateralValue)).add(new BN(paymentValue)) // Add payment
+                let expectedOrderFillerEth = new BN(originalOrderFillerEth).add(new BN(collateralValue)).add(new BN(paymentValue))
 
                 const fillReceipt = await timeDelayedOrderBook.fillPurchaseOrder(orderId, { from: purchaseOrderFiller })
 
-                expectedOrderFillerEth = expectedOrderFillerEth.sub(new BN(fillReceipt.receipt.gasUsed).mul(new BN(gasPrice)))
+                expectedOrderFillerEth = subGasUsed(expectedOrderFillerEth, fillReceipt)
                 const actualOrderFillerEth = await web3.eth.getBalance(purchaseOrderFiller)
                 assert.isTrue(new BN(actualOrderFillerEth).eq(expectedOrderFillerEth))
             })
@@ -151,9 +173,9 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
             it('deletes the purchase order', async () => {
                 await timeDelayedOrderBook.fillPurchaseOrder(orderId, { from: purchaseOrderFiller })
 
-                const purchaseOrder = await timeDelayedOrderBook.purchaseOrders(orderId)
+                const { committedFillerAddress } = await timeDelayedOrderBook.purchaseOrders(orderId)
 
-                assert.strictEqual(purchaseOrder.committedFillerAddress, ZERO_ADDRESS)
+                assert.strictEqual(committedFillerAddress, ZERO_ADDRESS)
             })
         })
     })
