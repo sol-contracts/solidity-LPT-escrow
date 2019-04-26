@@ -10,8 +10,6 @@ contract LivepeerTokenEscrow is TimeDelayedOrderBook {
 
     using SafeMath for uint256;
 
-    address public livepeerToken;
-
     IController public livepeerController;
 
     constructor (address _livepeerController) public {
@@ -20,7 +18,7 @@ contract LivepeerTokenEscrow is TimeDelayedOrderBook {
 
     function createOrderOfLptForEthWithEthCollateral(uint256 _purchaseValue, uint256 _collateralValue) public payable {
         address livepeerTokenAddress = _getLivepeerContractAddress("LivepeerToken");
-        createPurchaseOrder(livepeerTokenAddress, _purchaseValue, ETH_TOKEN_IDENTIFIER, msg.value, ETH_TOKEN_IDENTIFIER, _collateralValue);
+        _createPurchaseOrder(livepeerTokenAddress, _purchaseValue, ETH_TOKEN_IDENTIFIER, msg.value, ETH_TOKEN_IDENTIFIER, _collateralValue);
     }
 
     function createOrderOfLptForEthWithTokenCollateral(uint256 _purchaseValue, address _collateralToken, uint256 _collateralValue)
@@ -28,7 +26,7 @@ contract LivepeerTokenEscrow is TimeDelayedOrderBook {
         payable
     {
         address livepeerTokenAddress = _getLivepeerContractAddress("LivepeerToken");
-        createPurchaseOrder(livepeerTokenAddress, _purchaseValue, ETH_TOKEN_IDENTIFIER, msg.value, _collateralToken, _collateralValue);
+        _createPurchaseOrder(livepeerTokenAddress, _purchaseValue, ETH_TOKEN_IDENTIFIER, msg.value, _collateralToken, _collateralValue);
     }
 
     function createOrderOfLptForTokenWithTokenCollateral(
@@ -42,9 +40,12 @@ contract LivepeerTokenEscrow is TimeDelayedOrderBook {
         payable
     {
         address livepeerTokenAddress = _getLivepeerContractAddress("LivepeerToken");
-        createPurchaseOrder(livepeerTokenAddress, _purchaseValue, _paymentToken, _paymentValue, _collateralToken, _collateralValue);
+        _createPurchaseOrder(livepeerTokenAddress, _purchaseValue, _paymentToken, _paymentValue, _collateralToken, _collateralValue);
     }
 
+    /*
+    * Overrides abstract function in TimeDelayedOrderBook
+    */
     function blocksToFillOrder() public view returns (uint256) {
         IBondingManager bondingManager = IBondingManager(_getLivepeerContractAddress("BondingManager"));
         uint64 unbondingPeriodRounds = bondingManager.unbondingPeriod();

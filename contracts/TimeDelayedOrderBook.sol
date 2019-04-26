@@ -4,7 +4,7 @@ import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 
 // TODO: Safe token transfers.
-// TODO: TimeLockedOrderBook ?  CommitTimeLockedOrderBook ?
+// TODO: TimeLockedOrderBook ?  CommitLockedOrderBook ?
 contract TimeDelayedOrderBook {
 
     using SafeMath for uint256;
@@ -43,8 +43,7 @@ contract TimeDelayedOrderBook {
 
     event NewPurchaseOrder(address indexed purchaseOrderCreator, uint256 purchaseOrderId);
 
-    // TODO: internal?
-    function createPurchaseOrder(
+    function _createPurchaseOrder(
         address _purchaseToken, // Can't be the ETH_TOKEN_IDENTIFIER
         uint256 _purchaseValue,
         address _paymentToken,
@@ -52,8 +51,7 @@ contract TimeDelayedOrderBook {
         address _collateralToken,
         uint256 _collateralValue
     )
-        public
-        payable
+        internal
         returns (uint256)
     {
         if (_paymentToken == ETH_TOKEN_IDENTIFIER) {
