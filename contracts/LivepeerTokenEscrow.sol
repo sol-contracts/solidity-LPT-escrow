@@ -1,9 +1,9 @@
 pragma solidity ^0.5.7;
 
 import "./TimeDelayedOrderBook.sol";
-import "./IController.sol";
-import "./IBondingManager.sol";
-import "./IRoundsManager.sol";
+import "./livepeerInterface/IController.sol";
+import "./livepeerInterface/IBondingManager.sol";
+import "./livepeerInterface/IRoundsManager.sol";
 import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 
 contract LivepeerTokenEscrow is TimeDelayedOrderBook {
