@@ -1,12 +1,15 @@
 pragma solidity ^0.5.7;
 
 import "openzeppelin-solidity/contracts/token/ERC20/IERC20.sol";
+import "openzeppelin-solidity/contracts/math/SafeMath.sol";
 
 // TODO: Safe token transfers.
-// TODO: TimeLockedOrderBook ?
+// TODO: TimeLockedOrderBook ?  CommitTimeLockedOrderBook ?
 contract TimeDelayedOrderBook {
 
-    address private constant ETH_TOKEN_IDENTIFIER = address(0);
+    using SafeMath for uint256;
+
+    address internal constant ETH_TOKEN_IDENTIFIER = address(0);
     address private constant ZERO_ADDRESS = address(0);
     uint256 private constant EMPTY_TIME_TO_FILL_ORDER = 0;
 
@@ -30,7 +33,7 @@ contract TimeDelayedOrderBook {
         uint256 collateralValue;
 
         address committedFillerAddress;
-        uint256 fillOrderByTime;
+        uint256 fillOrderByBlock;
     }
 
     uint256 private newPurchaseOrderId;
@@ -40,6 +43,7 @@ contract TimeDelayedOrderBook {
 
     event NewPurchaseOrder(address indexed purchaseOrderCreator, uint256 purchaseOrderId);
 
+    // TODO: internal?
     function createPurchaseOrder(
         address _purchaseToken, // Can't be the ETH_TOKEN_IDENTIFIER
         uint256 _purchaseValue,
@@ -50,6 +54,7 @@ contract TimeDelayedOrderBook {
     )
         public
         payable
+        returns (uint256)
     {
         if (_paymentToken == ETH_TOKEN_IDENTIFIER) {
             require(msg.value == _paymentValue, ERROR_INCORRECT_PAYMENT_VALUE);
@@ -76,13 +81,14 @@ contract TimeDelayedOrderBook {
         emit NewPurchaseOrder(msg.sender, newPurchaseOrderId);
 
         newPurchaseOrderId++;
+        return purchaseOrderIds[purchaseOrderIds.length - 1];
     }
 
     function cancelPurchaseOrder(uint256 _purchaseOrderId) public {
         PurchaseOrder storage purchaseOrder = purchaseOrders[_purchaseOrderId];
 
         require(purchaseOrder.purchaseOrderCreator == msg.sender, ERROR_NOT_ORDER_OWNER);
-        require(purchaseOrder.committedFillerAddress == ZERO_ADDRESS || now > purchaseOrder.fillOrderByTime, ERROR_ORDER_COMMITTED_TO);
+        require(purchaseOrder.committedFillerAddress == ZERO_ADDRESS || block.number > purchaseOrder.fillOrderByBlock, ERROR_ORDER_COMMITTED_TO);
 
         if (purchaseOrder.paymentToken == ETH_TOKEN_IDENTIFIER) {
             msg.sender.transfer(purchaseOrder.paymentValue);
@@ -90,7 +96,7 @@ contract TimeDelayedOrderBook {
             IERC20(purchaseOrder.paymentToken).transfer(msg.sender, purchaseOrder.paymentValue);
         }
 
-        if (purchaseOrder.committedFillerAddress != ZERO_ADDRESS && now > purchaseOrder.fillOrderByTime) {
+        if (purchaseOrder.committedFillerAddress != ZERO_ADDRESS && block.number > purchaseOrder.fillOrderByBlock) {
             if (purchaseOrder.collateralToken == ETH_TOKEN_IDENTIFIER) {
                 msg.sender.transfer(purchaseOrder.collateralValue);
             } else {
@@ -105,6 +111,8 @@ contract TimeDelayedOrderBook {
     /*
      * Should check purchaseOrder.purchaseToken is as expected before calling this,
      * otherwise the seller could commit to an order they cannot fill.
+     * If the collateral is a token, this contract requires approval to transfer the collateral before this function is called..
+     * If the collateral is Eth, this contract requires the Eth is sent with the transaction.
      */
     function commitToPurchaseOrder(uint256 _purchaseOrderId) public payable {
         PurchaseOrder storage purchaseOrder = purchaseOrders[_purchaseOrderId];
@@ -118,9 +126,13 @@ contract TimeDelayedOrderBook {
         }
 
         purchaseOrder.committedFillerAddress = msg.sender;
-        purchaseOrder.fillOrderByTime = now + timeToFillOrder();
+        purchaseOrder.fillOrderByBlock = block.number.add(blocksToFillOrder());
     }
 
+    /*
+     * If the payment is a token, this contract requires approval to transfer the payment before this function is called.
+     * If the payment is Eth, this contract requires the Eth is sent with the transaction.
+     */
     function fillPurchaseOrder(uint256 _purchaseOrderId) public {
         PurchaseOrder storage purchaseOrder = purchaseOrders[_purchaseOrderId];
 
@@ -144,5 +156,8 @@ contract TimeDelayedOrderBook {
         // TODO: DELETE FROM purchaseOrderIds
     }
 
-    function timeToFillOrder() public view returns (uint256);
+    /*
+     * Abstract function requires overriding.
+     */
+    function blocksToFillOrder() public view returns (uint256);
 }

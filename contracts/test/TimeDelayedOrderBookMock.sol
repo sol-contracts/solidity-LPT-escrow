@@ -4,7 +4,7 @@ import "../TimeDelayedOrderBook.sol";
 
 contract TimeDelayedOrderBookMock is TimeDelayedOrderBook {
 
-    function timeToFillOrder() public view returns (uint256) {
-        return 1 days;
+    function blocksToFillOrder() public view returns (uint256) {
+        return 10;
     }
 }

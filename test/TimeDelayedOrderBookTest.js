@@ -2,33 +2,42 @@ const TimeDelayedOrderBookMock = artifacts.require('TimeDelayedOrderBookMock')
 const Erc20Token = artifacts.require('TestErc20')
 const BN = require('bn.js')
 const {getLog, assertEqualBN, assertRevert} = require('./helpers')
-const {increaseTo, latest} = require('openzeppelin-test-helpers/src/time')
+const {advanceBlock, latestBlock, latest} = require('openzeppelin-test-helpers/src/time')
 
 const ETH_TOKEN_IDENTIFIER = '0x0000000000000000000000000000000000000000'
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
+
+const gasPrice = 20000000000
+const purchaseValue = 30
+const paymentValue = 20
+const collateralValue = 10
+
+const subGasUsed = (ethValueBn, receipt) =>
+    ethValueBn.sub(new BN(receipt.receipt.gasUsed).mul(new BN(gasPrice)))
+
+const advanceBlocks = async blocks => {
+    for (var i = 0; i < blocks; i++) {
+        await advanceBlock()
+    }
+}
+
+const advanceToBlock = async block =>
+    await advanceBlocks(block - await latestBlock())
 
 contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator, purchaseOrderFiller, notPurchaseOrderFiller]) => {
 
     let timeDelayedOrderBook
     let purchaseToken, paymentToken, collateralToken
 
-    const gasPrice = 20000000000
-    const purchaseValue = 30
-    const paymentValue = 20
-    const collateralValue = 10
-
     let orderId
-    let timeToFillOrder
-
-    const subGasUsed = (ethValueBn, receipt) =>
-        ethValueBn.sub(new BN(receipt.receipt.gasUsed).mul(new BN(gasPrice)))
+    let blocksToFillOrder
 
     beforeEach(async () => {
         timeDelayedOrderBook = await TimeDelayedOrderBookMock.new()
         purchaseToken = await Erc20Token.new()
         paymentToken = await Erc20Token.new()
         collateralToken = await Erc20Token.new()
-        timeToFillOrder = await timeDelayedOrderBook.timeToFillOrder()
+        blocksToFillOrder = await timeDelayedOrderBook.blocksToFillOrder()
     })
 
     context('createPurchaseOrder() with ETH as payment and collateral', () => {
@@ -42,7 +51,7 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
         })
 
         it('creates a new purchase order with correct details', async () => {
-            const expectedFillOrderByTime = 0
+            const expectedFillOrderByBlock = 0
 
             const purchaseOrder = await timeDelayedOrderBook.purchaseOrders(orderId)
 
@@ -54,7 +63,7 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
             assert.strictEqual(purchaseOrder.collateralToken, ETH_TOKEN_IDENTIFIER)
             await assertEqualBN(purchaseOrder.collateralValue, collateralValue)
             assert.strictEqual(purchaseOrder.committedFillerAddress, ZERO_ADDRESS)
-            await assertEqualBN(purchaseOrder.fillOrderByTime, expectedFillOrderByTime)
+            await assertEqualBN(purchaseOrder.fillOrderByBlock, expectedFillOrderByBlock)
         })
 
         context('cancelPurchaseOrder(uint256 _purchaseOrderId)', () => {
@@ -81,20 +90,20 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
                 await assertRevert(timeDelayedOrderBook.cancelPurchaseOrder(orderId, { from: notPurchaseOrderCreator }), 'ORDER_BOOK_NOT_PURCHASE_ORDER_OWNER')
             })
 
-            it("reverts when committed too but fill order by time isn't reached", async () => {
+            it("reverts when committed too but fill order by block isn't reached", async () => {
                 await timeDelayedOrderBook.commitToPurchaseOrder(orderId, { value: collateralValue, from: purchaseOrderFiller })
-                const { fillOrderByTime } = await timeDelayedOrderBook.purchaseOrders(orderId)
-                await increaseTo(fillOrderByTime.sub(new BN(10)))
+                const { fillOrderByBlock } = await timeDelayedOrderBook.purchaseOrders(orderId)
+                await advanceToBlock(fillOrderByBlock.toNumber() - 1)
 
-                assertRevert(timeDelayedOrderBook.cancelPurchaseOrder(orderId), 'ORDER_BOOK_PURCHASE_COMMITTED_TO')
+                await assertRevert(timeDelayedOrderBook.cancelPurchaseOrder(orderId), 'ORDER_BOOK_PURCHASE_COMMITTED_TO')
             })
 
-            it('sends collateral to the creator after being committed too and fill order by time is reached', async () => {
+            it('sends collateral to the creator after being committed too and fill order by block is reached', async () => {
                 const originalOrderCreatorEth = await web3.eth.getBalance(purchaseOrderCreator)
                 let expectedOrderCreatorEth = new BN(originalOrderCreatorEth).add(new BN(collateralValue)).add(new BN(paymentValue))
                 await timeDelayedOrderBook.commitToPurchaseOrder(orderId, { value: collateralValue, from: purchaseOrderFiller })
-                const { fillOrderByTime } = await timeDelayedOrderBook.purchaseOrders(orderId)
-                await increaseTo(fillOrderByTime.add(new BN(10)))
+                const { fillOrderByBlock } = await timeDelayedOrderBook.purchaseOrders(orderId)
+                await advanceToBlock(fillOrderByBlock)
 
                 const cancelReceipt = await timeDelayedOrderBook.cancelPurchaseOrder(orderId)
 
@@ -129,11 +138,11 @@ contract('TimeDelayedOrderBook', ([purchaseOrderCreator, notPurchaseOrderCreator
             it('updates purchase order details', async () => {
                 await timeDelayedOrderBook.commitToPurchaseOrder(orderId, { value: collateralValue })
 
-                const { committedFillerAddress, fillOrderByTime } = await timeDelayedOrderBook.purchaseOrders(orderId)
-                assert.strictEqual(committedFillerAddress, purchaseOrderCreator)
+                const { committedFillerAddress, fillOrderByBlock } = await timeDelayedOrderBook.purchaseOrders(orderId)
 
-                const expectedTimeToFillOrder = timeToFillOrder.add(await latest()).toNumber()
-                assert.closeTo(fillOrderByTime.toNumber(), expectedTimeToFillOrder, 10)
+                const expectedTimeToFillOrder = blocksToFillOrder.add(await latestBlock()).toNumber()
+                assert.strictEqual(fillOrderByBlock.toNumber(), expectedTimeToFillOrder)
+                assert.strictEqual(committedFillerAddress, purchaseOrderCreator)
             })
         })
 

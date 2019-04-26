@@ -8,5 +8,8 @@ contract('LivepeerTokenEscrow', accounts => {
         livepeerTokenEscrow = await LivepeerTokenEscrow.new()
     })
 
+    context('createOrderOfLptForEthWithEthCollateral(uint256 _purchaseValue, uint256 _collateralValue)', () => {
+
+    })
 
 })
